@@ -1,7 +1,7 @@
 /* Set up a user-managed identity and elastic job agent in the Azure portal, 
 and then you can use this T-SQL script to do the rest of the setup 
 See my blog post for more details 
-put link here 
+https://sqlkitty.com/elastic-jobs-azure-sql-db/
 */
 
 /* setup perms for user managed id to access dbs
