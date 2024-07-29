@@ -111,11 +111,75 @@ resource "azapi_resource" "elasticjobstargetgroups" {
   body = jsonencode({
     properties = {
       members = [
+        /* this adds all the dbs in the elastic pool to the target group */
         {
           elasticPoolName = azurerm_mssql_elasticpool.example.name  # use this if your db is in an elastic pool 
           membershipType = "Include"  
           type = "SqlElasticPool" 
           serverName = azurerm_mssql_server.server.name
+        },
+
+        /* use this below to add an azure sql server or dbs to the target group 
+            TF code to create additional azure sql servers not included above
+            I only show the elastic pool setup fully 
+            but wanted to give you examples of how to include/exclude azure sql servers/dbs
+        */
+        {
+          membershipType = "Include"  # or "Exclude"
+          serverName = putthatservernamehere #created with module and main.tf or you can manually type it here 
+          type = "SqlServer" 
+        },
+        {
+          databaseName = "josephineadventureworks"  # Name of the database to exclude
+          membershipType = "Exclude"
+          serverName = putthatservernamehere
+          type = "SqlDatabase"
+        }, 
+        {
+          databaseName = "dwingestion"  
+          membershipType = "Exclude"
+          serverName = putthatservernamehere
+          type = "SqlDatabase"
+        },
+        {
+          databaseName = "anotherdb"  # Name of the database to include
+          membershipType = "Include"
+          serverName = putyetanotherservernamehere
+          type = "SqlDatabase"
+        },
+      ]
+    }
+  })
+}
+
+
+resource "azapi_resource" "elasticjobstargetgroups" {
+  type = "Microsoft.Sql/servers/jobAgents/targetGroups@2023-05-01-preview"
+  name = "AzureSQLDBs"
+  parent_id = azapi_resource.elasticjobagent.id
+  body = jsonencode({
+    properties = {
+      members = [
+        {
+          #databaseName = "string" # this is not needed if you want all the dbs on the server 
+          #elasticPoolName = "string"  # use this is your db is in an elastic pool 
+          membershipType = "Include"  # or "Exclude"
+          #refreshCredential = "string" #don't I need this with a managed identity
+          serverName = azurerm_mssql_server.example.fully_qualified_domain_name #created with module and main.tf or you can manually type it here 
+          #shardMapName = "string"
+          type = "SqlServer" 
+        },
+        {
+          databaseName = "josephineadventureworks"  # Name of the database to exclude
+          membershipType = "Exclude"
+          serverName = azurerm_mssql_server.example.fully_qualified_domain_name
+          type = "SqlDatabase"
+        }, 
+        {
+          databaseName = "dwingestion"  # Name of the database to exclude
+          membershipType = "Exclude"
+          serverName = azurerm_mssql_server.example.fully_qualified_domain_name
+          type = "SqlDatabase"
         }
       ]
     }
