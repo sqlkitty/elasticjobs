@@ -6,8 +6,6 @@ $userManagedIdentityName = "ElasticAgentJobsManagedID"
 $location = "eastus2"
 
 New-AzUserAssignedIdentity -ResourceGroupName $resourceGroupName -Name $userManagedIdentityName -Location $location
-Write-Host "User-Managed Identity $userManagedIdentityName created successfully."
-Write-Host "Managed Identity ID: $($managedIdentity.Id)"
 
 
 # SETUP ELASTIC JOB SQL SERVER 
@@ -103,19 +101,60 @@ $job | Add-AzSqlElasticJobStep -Name "OlaStatsUpdateStep" `
     -CommandText $commandText
 
 
-# if are in an elastic pool and are worried about concurrent jobs running 
-$updateQuery = @"
-EXEC jobs.sp_update_jobstep  
-    @job_name = 'OlaStatsUpdateJob',  
-    @step_name = 'OlaStatsUpdateStep',  
-    @max_parallelism = 3;
+
+# IMPORTANT!!!  If you have an elastic pool 
+#                Update the max_parallelism setting after setting up this job otherwise the pool will be overloaded
+#                that script is included below the job setup 
+# SETUP INDEX MAINTENANCE JOB ON THE AGENT
+# Get the job agent
+$agent = Get-AzSqlElasticJobAgent -ResourceGroupName "rgname" -ServerName "servername" -Name "agentname"
+# Create job
+$agentJob = $agent | New-AzSqlElasticJob -Name "OlaIndexMaintJob"
+# Set daily schedule and enable the job 
+$startTimeUTC = [datetime]::ParseExact("2025-03-02 05:00:00", "yyyy-MM-dd HH:mm:ss", $null)
+$agentJob | Set-AzSqlElasticJob -IntervalType Week -IntervalCount 1 -StartTime $startTimeUTC -Enable
+
+# SETUP JOB STEP ON THE JOB
+# Get the job
+$job = Get-AzSqlElasticJob -ResourceGroupName "rgname" `
+    -ServerName "sqlservername" `
+    -AgentName "ElasticJobsAgentDev" `
+    -Name "OlaIndexMaintJob"
+
+# Create step code
+$commandText = @"
+EXECUTE dba.IndexOptimize
+    @Databases = 'USER_DATABASES',
+    @MinNumberOfPages = 100,
+    @FragmentationLow = NULL,
+    @FragmentationMedium = 'INDEX_REORGANIZE, INDEX_REBUILD_ONLINE',
+    @FragmentationHigh = 'INDEX_REBUILD_ONLINE, INDEX_REORGANIZE',
+    @FragmentationLevel1 = 50,
+    @FragmentationLevel2 = 80,
+    @LogToTable = 'Y';
 "@
 
-Invoke-Sqlcmd -ServerInstance "sqlservername.database.windows.net" `
+$job | Add-AzSqlElasticJobStep -Name "OlaIndexMaintStep" `
+    -TargetGroupName "AzureSQLDBs" `
+    -CommandText $commandText
+
+
+# IMPORTANT!!!  Update the max_parallelism setting
+# this is needed for index maintenance when dbs share a pool 
+# I just run it directly in the db not with ps 
+
+$updateQuery = @"
+EXEC jobs.sp_update_jobstep  
+    @job_name = 'OlaIndexMaintJob',  
+    @step_name = 'OlaIndexMaintStep',  
+    @max_parallelism = 1;
+"@
+
+Invoke-Sqlcmd -ServerInstance "sqlservername" `
               -Database "ElasticJobsDB" `
               -Query $updateQuery `
-              -Username "yourAdminUser" `
-              -Password "yourAdminPassword"
+              -Username "get from keyvault" `
+              -Password "get from keyvault"
 
 
 # ADD ANOTHER STEP TO CLEANUP COMMAND LOG
